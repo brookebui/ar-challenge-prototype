@@ -70,30 +70,70 @@
         box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
       }
 
-      #simulate-overlap {
-        position: fixed;
-        top: max(1rem, env(safe-area-inset-top));
-        right: max(1rem, env(safe-area-inset-right));
+      #simulate-overlap,
+      #rotate-btn {
+        position: absolute;
         z-index: 2;
         appearance: none;
+        display: grid;
+        place-items: center;
+        width: 48px;
+        height: 48px;
+        padding: 0;
         border: 1px solid rgba(255, 255, 255, 0.35);
-        border-radius: 999px;
-        padding: 0.65rem 1rem;
-        min-height: 44px;
+        border-radius: 50%;
         background: rgba(0, 0, 0, 0.55);
         color: #fff;
-        font-size: 0.9rem;
-        font-weight: 500;
         cursor: pointer;
+        pointer-events: auto;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      #simulate-overlap {
+        top: max(1rem, env(safe-area-inset-top));
+        right: max(1rem, env(safe-area-inset-right));
+      }
+
+      #rotate-btn {
+        right: max(1rem, env(safe-area-inset-right));
+        bottom: max(1.5rem, env(safe-area-inset-bottom));
+      }
+
+      #simulate-overlap svg,
+      #rotate-btn svg {
+        width: 22px;
+        height: 22px;
+        display: block;
       }
 
       #simulate-overlap[aria-pressed='true'] {
         border-color: #ff4d4d;
         color: #ff4d4d;
+        background: rgba(80, 0, 0, 0.65);
+      }
+
+      /* Drag to rotate: always in 3D; in AR only while overlap is active. */
+      #rotate-surface {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        touch-action: none;
+        cursor: grab;
+        pointer-events: none;
+        background: transparent;
+      }
+
+      model-viewer[ar-status='not-presenting'] #rotate-surface,
+      #rotate-surface.is-active {
+        pointer-events: auto;
+      }
+
+      #rotate-surface:active {
+        cursor: grabbing;
       }
 
       #overlap-msg {
-        position: fixed;
+        position: absolute;
         left: 50%;
         bottom: max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem));
         transform: translateX(-50%);
@@ -167,15 +207,30 @@
       exposure="1"
       touch-action="none"
       interaction-prompt="none"
-      style="cursor: grab"
-    ></model-viewer>
+    >
+      <div id="rotate-surface" aria-hidden="true"></div>
+      <button
+        id="simulate-overlap"
+        type="button"
+        aria-label="Simulate overlap"
+        aria-pressed="false"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="7" width="11" height="11" rx="1.5" />
+          <rect x="10" y="3" width="11" height="11" rx="1.5" />
+        </svg>
+      </button>
+      <button id="rotate-btn" type="button" aria-label="Rotate couch">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-3-6.7" />
+          <polyline points="21 3 21 9 15 9" />
+        </svg>
+      </button>
+      <p id="overlap-msg" hidden>
+        <span class="msg-text">It cannot be placed here.</span>
+      </p>
+    </model-viewer>
 
-    <button id="simulate-overlap" type="button" aria-pressed="false">
-      Simulate overlap
-    </button>
-    <p id="overlap-msg" hidden>
-      <span class="msg-text">It cannot be placed here.</span>
-    </p>
     <button id="place-btn" type="button" hidden>Place couch</button>
     <p id="unsupported" hidden>Open on a phone with AR support</p>
 
@@ -184,6 +239,8 @@
       const placeBtn = document.getElementById('place-btn');
       const unsupported = document.getElementById('unsupported');
       const simulateBtn = document.getElementById('simulate-overlap');
+      const rotateBtn = document.getElementById('rotate-btn');
+      const rotateSurface = document.getElementById('rotate-surface');
       const overlapMsg = document.getElementById('overlap-msg');
 
       const OVERLAP_COLOR = [1, 0.12, 0.12, 1];
@@ -266,6 +323,7 @@
       function setOverlap(active) {
         overlapping = active;
         simulateBtn.setAttribute('aria-pressed', String(active));
+        rotateSurface.classList.toggle('is-active', active);
 
         if (active) {
           showBlockedThenRotate();
@@ -282,22 +340,34 @@
         });
       }
 
-      simulateBtn.addEventListener('click', () => {
+      simulateBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
         if (!viewer.model?.materials?.length) return;
         if (!originalColors.length) cacheOriginalColors();
         setOverlap(!overlapping);
       });
 
-      viewer.addEventListener('pointerdown', (event) => {
+      rotateBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        rotateBy(TAP_ROTATE_DEG);
+      });
+
+      function stopControlPointer(event) {
+        event.stopPropagation();
+      }
+
+      simulateBtn.addEventListener('pointerdown', stopControlPointer);
+      rotateBtn.addEventListener('pointerdown', stopControlPointer);
+
+      rotateSurface.addEventListener('pointerdown', (event) => {
         if (event.button !== undefined && event.button !== 0) return;
         pointerId = event.pointerId;
         lastPointerX = event.clientX;
         totalDragX = 0;
-        viewer.setPointerCapture(event.pointerId);
-        viewer.style.cursor = 'grabbing';
+        rotateSurface.setPointerCapture(event.pointerId);
       });
 
-      viewer.addEventListener('pointermove', (event) => {
+      rotateSurface.addEventListener('pointermove', (event) => {
         if (pointerId !== event.pointerId) return;
         const dx = event.clientX - lastPointerX;
         lastPointerX = event.clientX;
@@ -306,18 +376,17 @@
         rotateBy(dx * DRAG_SENSITIVITY);
       });
 
-      function endPointer(event) {
+      function endRotatePointer(event) {
         if (pointerId !== event.pointerId) return;
         const wasTap = Math.abs(totalDragX) < TAP_MOVE_THRESHOLD;
         pointerId = null;
-        viewer.style.cursor = 'grab';
         if (wasTap) {
           rotateBy(TAP_ROTATE_DEG);
         }
       }
 
-      viewer.addEventListener('pointerup', endPointer);
-      viewer.addEventListener('pointercancel', endPointer);
+      rotateSurface.addEventListener('pointerup', endRotatePointer);
+      rotateSurface.addEventListener('pointercancel', endRotatePointer);
 
       async function tryActivateAR() {
         if (!viewer.canActivateAR) {
