@@ -41,7 +41,6 @@
         --progress-mask: transparent;
       }
 
-      /* Hide default 3D chrome; only the AR control should matter */
       model-viewer::part(default-ar-button) {
         display: none;
       }
@@ -71,8 +70,67 @@
         box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
       }
 
+      #simulate-overlap {
+        position: fixed;
+        top: max(1rem, env(safe-area-inset-top));
+        right: max(1rem, env(safe-area-inset-right));
+        z-index: 2;
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        border-radius: 999px;
+        padding: 0.65rem 1rem;
+        min-height: 44px;
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      #simulate-overlap[aria-pressed='true'] {
+        border-color: #ff4d4d;
+        color: #ff4d4d;
+      }
+
+      #overlap-msg {
+        position: fixed;
+        left: 50%;
+        bottom: max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem));
+        transform: translateX(-50%);
+        z-index: 2;
+        margin: 0;
+        padding: 0.65rem 1rem;
+        max-width: min(90vw, 22rem);
+        min-width: 12rem;
+        text-align: center;
+        font-size: 0.95rem;
+        font-weight: 500;
+        line-height: 1.35;
+        color: #fff;
+        background: rgba(180, 20, 20, 0.9);
+        border-radius: 8px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.35s ease;
+      }
+
+      #overlap-msg.is-visible {
+        opacity: 1;
+      }
+
+      #overlap-msg .msg-text {
+        display: block;
+        opacity: 1;
+        transition: opacity 0.4s ease;
+      }
+
+      #overlap-msg .msg-text.is-fading {
+        opacity: 0;
+      }
+
       #place-btn[hidden],
-      #unsupported[hidden] {
+      #unsupported[hidden],
+      #overlap-msg[hidden] {
         display: none;
       }
 
@@ -109,8 +167,15 @@
       exposure="1"
       touch-action="none"
       interaction-prompt="none"
+      style="cursor: grab"
     ></model-viewer>
 
+    <button id="simulate-overlap" type="button" aria-pressed="false">
+      Simulate overlap
+    </button>
+    <p id="overlap-msg" hidden>
+      <span class="msg-text">It cannot be placed here.</span>
+    </p>
     <button id="place-btn" type="button" hidden>Place couch</button>
     <p id="unsupported" hidden>Open on a phone with AR support</p>
 
@@ -118,8 +183,141 @@
       const viewer = document.getElementById('couch');
       const placeBtn = document.getElementById('place-btn');
       const unsupported = document.getElementById('unsupported');
+      const simulateBtn = document.getElementById('simulate-overlap');
+      const overlapMsg = document.getElementById('overlap-msg');
 
+      const OVERLAP_COLOR = [1, 0.12, 0.12, 1];
+      const MSG_BLOCKED = 'It cannot be placed here.';
+      const MSG_ROTATE = 'Try rotating.';
+      const msgText = overlapMsg.querySelector('.msg-text');
+
+      let originalColors = [];
+      let overlapping = false;
       let triedAutoActivate = false;
+      let messageTimers = [];
+      let yawDeg = 0;
+
+      const TAP_ROTATE_DEG = 45;
+      const DRAG_SENSITIVITY = 0.45;
+      const TAP_MOVE_THRESHOLD = 8;
+
+      let pointerId = null;
+      let lastPointerX = 0;
+      let totalDragX = 0;
+
+      function clearMessageTimers() {
+        messageTimers.forEach(clearTimeout);
+        messageTimers = [];
+      }
+
+      function applyYaw() {
+        viewer.orientation = `0deg ${yawDeg}deg 0deg`;
+      }
+
+      function rotateBy(deltaDeg) {
+        yawDeg = ((yawDeg + deltaDeg) % 360 + 360) % 360;
+        applyYaw();
+        if (overlapping) setOverlap(false);
+      }
+
+      function cacheOriginalColors() {
+        const materials = viewer.model?.materials ?? [];
+        originalColors = materials.map((material) =>
+          material.pbrMetallicRoughness.baseColorFactor.slice()
+        );
+      }
+
+      function showBlockedThenRotate() {
+        clearMessageTimers();
+        msgText.textContent = MSG_BLOCKED;
+        msgText.classList.remove('is-fading');
+        overlapMsg.hidden = false;
+        void overlapMsg.offsetWidth;
+        overlapMsg.classList.add('is-visible');
+
+        messageTimers.push(
+          setTimeout(() => {
+            if (!overlapping) return;
+            msgText.classList.add('is-fading');
+            messageTimers.push(
+              setTimeout(() => {
+                if (!overlapping) return;
+                msgText.textContent = MSG_ROTATE;
+                msgText.classList.remove('is-fading');
+              }, 400)
+            );
+          }, 1400)
+        );
+      }
+
+      function hideOverlapMessage() {
+        clearMessageTimers();
+        overlapMsg.classList.remove('is-visible');
+        msgText.classList.add('is-fading');
+        messageTimers.push(
+          setTimeout(() => {
+            overlapMsg.hidden = true;
+            msgText.textContent = MSG_BLOCKED;
+            msgText.classList.remove('is-fading');
+          }, 350)
+        );
+      }
+
+      function setOverlap(active) {
+        overlapping = active;
+        simulateBtn.setAttribute('aria-pressed', String(active));
+
+        if (active) {
+          showBlockedThenRotate();
+        } else {
+          hideOverlapMessage();
+        }
+
+        const materials = viewer.model?.materials ?? [];
+        materials.forEach((material, i) => {
+          const color = active
+            ? OVERLAP_COLOR
+            : (originalColors[i] ?? [1, 1, 1, 1]);
+          material.pbrMetallicRoughness.setBaseColorFactor(color);
+        });
+      }
+
+      simulateBtn.addEventListener('click', () => {
+        if (!viewer.model?.materials?.length) return;
+        if (!originalColors.length) cacheOriginalColors();
+        setOverlap(!overlapping);
+      });
+
+      viewer.addEventListener('pointerdown', (event) => {
+        if (event.button !== undefined && event.button !== 0) return;
+        pointerId = event.pointerId;
+        lastPointerX = event.clientX;
+        totalDragX = 0;
+        viewer.setPointerCapture(event.pointerId);
+        viewer.style.cursor = 'grabbing';
+      });
+
+      viewer.addEventListener('pointermove', (event) => {
+        if (pointerId !== event.pointerId) return;
+        const dx = event.clientX - lastPointerX;
+        lastPointerX = event.clientX;
+        totalDragX += dx;
+        if (Math.abs(dx) < 0.5) return;
+        rotateBy(dx * DRAG_SENSITIVITY);
+      });
+
+      function endPointer(event) {
+        if (pointerId !== event.pointerId) return;
+        const wasTap = Math.abs(totalDragX) < TAP_MOVE_THRESHOLD;
+        pointerId = null;
+        viewer.style.cursor = 'grab';
+        if (wasTap) {
+          rotateBy(TAP_ROTATE_DEG);
+        }
+      }
+
+      viewer.addEventListener('pointerup', endPointer);
+      viewer.addEventListener('pointercancel', endPointer);
 
       async function tryActivateAR() {
         if (!viewer.canActivateAR) {
@@ -143,12 +341,14 @@
       });
 
       viewer.addEventListener('load', () => {
+        cacheOriginalColors();
+        if (overlapping) setOverlap(true);
+
         if (triedAutoActivate) return;
         triedAutoActivate = true;
         tryActivateAR();
       });
 
-      // If AR capability resolves after load (common on mobile).
       const checkAr = () => {
         if (viewer.canActivateAR) {
           unsupported.hidden = true;
@@ -158,7 +358,6 @@
             tryActivateAR();
           }
         } else if (viewer.loaded) {
-          // Give the browser a moment; then show unsupported if still no AR.
           setTimeout(() => {
             if (!viewer.canActivateAR) {
               unsupported.hidden = false;
