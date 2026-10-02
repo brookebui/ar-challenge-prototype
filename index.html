@@ -215,7 +215,7 @@
       src="/models/couch.glb"
       alt="Couch"
       ar
-      ar-modes="webxr"
+      ar-modes="webxr scene-viewer quick-look"
       ar-placement="floor"
       ar-scale="fixed"
       xr-environment
@@ -248,7 +248,11 @@
     </model-viewer>
 
     <button id="place-btn" type="button" hidden>Place couch</button>
-    <p id="unsupported" hidden>Open on a phone with AR support</p>
+    <p id="unsupported" hidden>
+      AR isn’t available in this browser.<br />
+      On Android use Chrome (HTTPS).<br />
+      On iPhone use Safari.
+    </p>
 
     <script type="module">
       const viewer = document.getElementById('couch');
@@ -405,6 +409,11 @@
       rotateSurface.addEventListener('pointercancel', endRotatePointer);
 
       async function tryActivateAR() {
+        // Give model-viewer a moment to finish AR mode detection on mobile.
+        if (!viewer.canActivateAR) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+
         if (!viewer.canActivateAR) {
           unsupported.hidden = false;
           placeBtn.hidden = true;
@@ -422,7 +431,9 @@
       }
 
       placeBtn.addEventListener('click', () => {
-        viewer.activateAR();
+        viewer.activateAR().catch(() => {
+          unsupported.hidden = false;
+        });
       });
 
       viewer.addEventListener('load', () => {
@@ -456,12 +467,18 @@
             tryActivateAR();
           }
         } else if (viewer.loaded) {
+          // Keep Place couch visible while detection settles; only then show help.
+          placeBtn.hidden = false;
           setTimeout(() => {
-            if (!viewer.canActivateAR) {
+            if (
+              !viewer.canActivateAR &&
+              viewer.getAttribute('ar-status') !== 'session-started' &&
+              viewer.getAttribute('ar-status') !== 'object-placed'
+            ) {
               unsupported.hidden = false;
               placeBtn.hidden = true;
             }
-          }, 800);
+          }, 1500);
         }
       };
 

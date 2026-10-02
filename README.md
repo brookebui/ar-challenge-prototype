@@ -6,11 +6,10 @@ On an AR-capable phone, the page opens placement as soon as the model loads. The
 
 ## Requirements
 
-- **Android:** Chrome on an ARCore device
-- **iOS:** Safari on a device with ARKit (Quick Look)
-- HTTPS (required for WebXR / camera AR)
-
-Desktop browsers can load the page but will show “Open on a phone with AR support.”
+- **Android Chrome:** WebXR (best) — overlap/rotate prototype controls appear in the live camera view. Needs ARCore + HTTPS.
+- **Android fallback:** Scene Viewer can place the couch, but custom overlap/rotate UI will not show.
+- **iPhone Safari:** AR Quick Look can place the couch, but custom overlap/rotate UI will not show (Apple doesn’t support WebXR AR).
+- Open the **Network HTTPS URL** from `npm run dev` on the same Wi‑Fi (not the GitHub repo page). Accept the certificate warning.
 
 ## Run locally
 
