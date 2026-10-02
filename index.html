@@ -75,7 +75,7 @@
         position: absolute;
         z-index: 2;
         appearance: none;
-        display: grid;
+        display: none;
         place-items: center;
         width: 48px;
         height: 48px;
@@ -112,18 +112,18 @@
         background: rgba(80, 0, 0, 0.65);
       }
 
-      /* Drag to rotate: always in 3D; in AR only while overlap is active. */
+      /* Drag to rotate in AR while overlap is active. */
       #rotate-surface {
         position: absolute;
         inset: 0;
         z-index: 1;
+        display: none;
         touch-action: none;
         cursor: grab;
         pointer-events: none;
         background: transparent;
       }
 
-      model-viewer[ar-status='not-presenting'] #rotate-surface,
       #rotate-surface.is-active {
         pointer-events: auto;
       }
@@ -138,6 +138,7 @@
         bottom: max(5.5rem, calc(env(safe-area-inset-bottom) + 4.5rem));
         transform: translateX(-50%);
         z-index: 2;
+        display: none;
         margin: 0;
         padding: 0.65rem 1rem;
         max-width: min(90vw, 22rem);
@@ -166,6 +167,21 @@
 
       #overlap-msg .msg-text.is-fading {
         opacity: 0;
+      }
+
+      /* Prototype controls only in the live camera AR session (WebXR). */
+      model-viewer[ar-status='session-started'] #simulate-overlap,
+      model-viewer[ar-status='object-placed'] #simulate-overlap,
+      model-viewer[ar-status='session-started'] #rotate-btn,
+      model-viewer[ar-status='object-placed'] #rotate-btn {
+        display: grid;
+      }
+
+      model-viewer[ar-status='session-started'] #rotate-surface,
+      model-viewer[ar-status='object-placed'] #rotate-surface,
+      model-viewer[ar-status='session-started'] #overlap-msg:not([hidden]),
+      model-viewer[ar-status='object-placed'] #overlap-msg:not([hidden]) {
+        display: block;
       }
 
       #place-btn[hidden],
@@ -199,7 +215,7 @@
       src="/models/couch.glb"
       alt="Couch"
       ar
-      ar-modes="webxr scene-viewer quick-look"
+      ar-modes="webxr"
       ar-placement="floor"
       ar-scale="fixed"
       xr-environment
@@ -418,7 +434,20 @@
         tryActivateAR();
       });
 
-      const checkAr = () => {
+      const checkAr = (event) => {
+        const status = event?.detail?.status ?? viewer.getAttribute('ar-status');
+        const inAr =
+          status === 'session-started' || status === 'object-placed';
+
+        if (inAr) {
+          unsupported.hidden = true;
+          placeBtn.hidden = true;
+          return;
+        }
+
+        // Left AR (or never entered): keep prototype UI out of the 3D preview.
+        if (overlapping) setOverlap(false);
+
         if (viewer.canActivateAR) {
           unsupported.hidden = true;
           placeBtn.hidden = false;
